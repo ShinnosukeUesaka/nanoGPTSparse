@@ -26,20 +26,25 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-class CausalSelfAttention(nn.Module):
+class SparseCausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        assert config.n_embd % config.n_head == 0
+        assert config.n_embd_attention % config.n_head == 0
+        self.head_size = config.n_embd_attention // config.n_head
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_attn_a = nn.Linear(config.n_embd_a, config.n_embd_attention * 3, bias=config.bias)
+        self.c_attn_b = nn.Linear(config.n_embd_b, config.n_embd_attention * 3, bias=config.bias)
         # output projection
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.c_proj_a = nn.Linear(config.n_embd_attention, config.n_embd_a, bias=config.bias)
+        self.c_proj_b = nn.Linear(config.n_embd_attention, config.n_embd_b, bias=config.bias)
         # regularization
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
         self.n_head = config.n_head
-        self.n_embd = config.n_embd
+        self.n_embd_attention = config.n_embd_attention
+        self.n_embd_a = config.n_embd_a
+        self.n_embd_b = config.n_embd_b
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
@@ -49,14 +54,15 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x):
-        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
-
-        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+    def forward(self, x_a, x_b, mask_a: torch.BoolTensor):
+        x_a = self.c_attn_a(x_a)
+        x_b = self.c_attn_b(x_b)
+        kqv = interleave_tokens(x_a, x_b, mask_a)
+        print(f"interleaved x: {kqv.shape}")
+        B, T, _ = kqv.size()
+        kqv = kqv.view(B, T, -1, self.head_size)
+        kqv = kqv.permute(0, 2, 1, 3) # (B, T, n_heads*3, head_size) -> (B, n_heads*3, T, head_size)
+        q, k, v  = kqv.split(self.n_head, dim=1)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
@@ -69,20 +75,25 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(B, T, -1) # re-assemble all head outputs side by side
+
+        y_a = y[mask_a]
+        y_b = y[~mask_a]
 
         # output projection
-        y = self.resid_dropout(self.c_proj(y))
-        return y
+        y_a = self.resid_dropout(self.c_proj_a(y_a))
+        y_b = self.resid_dropout(self.c_proj_b(y_b))
+        #print(f"y_a: {y_a}")
+        return y_a, y_b
 
 class MLP(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, n_embd, bias, dropout):
         super().__init__()
-        self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.c_fc    = nn.Linear(n_embd, 4 * n_embd, bias=bias)
         self.gelu    = nn.GELU()
-        self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
-        self.dropout = nn.Dropout(config.dropout)
+        self.c_proj  = nn.Linear(4 * n_embd, n_embd, bias=bias)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -91,51 +102,74 @@ class MLP(nn.Module):
         x = self.dropout(x)
         return x
 
-class Block(nn.Module):
+class SparseBlock(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = CausalSelfAttention(config)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config)
-
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
+        self.ln_1_a = LayerNorm(config.n_embd_a, bias=config.bias)
+        self.ln_1_b = LayerNorm(config.n_embd_b, bias=config.bias)
+        self.attn = SparseCausalSelfAttention(config)
+        self.ln_2_a = LayerNorm(config.n_embd_a, bias=config.bias)
+        self.ln_2_b = LayerNorm(config.n_embd_b, bias=config.bias)
+        self.mlp_a = MLP(config.n_embd_a, bias=config.bias, dropout=config.dropout)
+        self.mlp_b = MLP(config.n_embd_b, bias=config.bias, dropout=config.dropout)
+    def forward(self, x_a, x_b, mask_a):
+        atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), mask_a)
+        print(f"atten_result_a: {atten_result_a}")
+        x_a = x_a + atten_result_a
+        x_b = x_b + atten_result_b
+        x_a = x_a + self.mlp_a(self.ln_2_a(x_a))
+        x_b = x_b + self.mlp_b(self.ln_2_b(x_b))
+        return x_a, x_b
 
 @dataclass
-class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+class SparseGPTConfig:
+    block_size: int
+    vocab_size: int
+    n_layer: int
+    n_head: int
+    n_embd_a: int
+    n_embd_b: int
+    n_embd_attention: int
+    dropout: float
+    bias: bool
 
-class GPT(nn.Module):
+def interleave_tokens(tokens_a: torch.Tensor, tokens_b: torch.Tensor, mask_a: torch.Tensor) -> torch.Tensor:
+    B, T = mask_a.size()
+    C = tokens_a.size(-1)
 
-    def __init__(self, config):
+    interleaved = torch.zeros(B, T, C, device=tokens_a.device, dtype=tokens_a.dtype)
+    flattend_text_mask = mask_a.view(-1)
+    interleaved.view(-1, C)[flattend_text_mask] = tokens_a.view(-1, C)
+    interleaved.view(-1, C)[~flattend_text_mask] = tokens_b.view(-1, C)
+    interleaved = interleaved.contiguous()
+    return interleaved
+class SparseGPT(nn.Module):
+
+    def __init__(self, config: SparseGPTConfig):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            wpe = nn.Embedding(config.block_size, config.n_embd),
+            wte_a = nn.Embedding(config.vocab_size, config.n_embd_a),
+            wte_b = nn.Embedding(config.vocab_size, config.n_embd_b),
+            wpe_a = nn.Embedding(config.block_size, config.n_embd_a),
+            wpe_b = nn.Embedding(config.block_size, config.n_embd_b),
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = LayerNorm(config.n_embd, bias=config.bias),
+            h = nn.ModuleList([SparseBlock(config) for _ in range(config.n_layer)]),
+            ln_f_a = LayerNorm(config.n_embd_a, bias=config.bias),
+            ln_f_b = LayerNorm(config.n_embd_b, bias=config.bias),
         ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head_a = nn.Linear(config.n_embd_a, config.vocab_size, bias=False)
+        self.lm_head_b = nn.Linear(config.n_embd_b, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        self.transformer.wte_a.weight = self.lm_head_a.weight # https://paperswithcode.com/method/weight-tying
+        self.transformer.wte_b.weight = self.lm_head_b.weight # https://paperswithcode.com/method/weight-tying
 
         # init all weights
         self.apply(self._init_weights)
@@ -156,7 +190,8 @@ class GPT(nn.Module):
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+            n_params -= self.transformer.wpe_a.weight.numel()
+            n_params -= self.transformer.wpe_b.weight.numel()
         return n_params
 
     def _init_weights(self, module):
@@ -167,27 +202,40 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx: torch.Tensor, mask_a: torch.Tensor, targets=None):
+        assert mask_a.shape == idx.shape
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
-
+        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0).expand(b, t) # shape (b, t)
+        
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        idx_a = idx[mask_a]
+        pos_a = pos[mask_a]
+        idx_b = idx[~mask_a]
+        pos_b = pos[~mask_a]
+        tok_emb_a = self.transformer.wte_a(idx_a) # token embeddings of shape (b, t, n_embd)
+        tok_emb_b = self.transformer.wte_b(idx_b) # token embeddings of shape (b, t, n_embd)
+        pos_emb_a = self.transformer.wpe_a(pos_a) # position embeddings of shape (b, t, n_embd)
+        pos_emb_b = self.transformer.wpe_b(pos_b) # position embeddings of shape (t, n_embd)
+        x_a = self.transformer.drop(tok_emb_a + pos_emb_a)
+        x_b = self.transformer.drop(tok_emb_b + pos_emb_b)
         for block in self.transformer.h:
-            x = block(x)
-        x = self.transformer.ln_f(x)
+            x_a, x_b = block(x_a, x_b, mask_a)
+        x_a = self.transformer.ln_f_a(x_a)
+        x_b = self.transformer.ln_f_b(x_b)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            logits_a = self.lm_head_a(x_a)
+            logits_b = self.lm_head_b(x_b)
+            logits = interleave_tokens(logits_a, logits_b, mask_a)
+            loss = F.cross_entropy(logits.view(-1, self.config.vocab_size), targets.flatten(), ignore_index=-1)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            logits_a = self.lm_head_a(x_a[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            logits_b = self.lm_head_b(x_b[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            logits = interleave_tokens(logits_a, logits_b, mask_a)
             loss = None
 
         return logits, loss
@@ -228,8 +276,8 @@ class GPT(nn.Module):
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args['dropout'] = override_args['dropout']
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
-        model = GPT(config)
+        config = SparseGPTConfig(**config_args)
+        model = SparseGPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
@@ -292,7 +340,7 @@ class GPT(nn.Module):
         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
         N = self.get_num_params()
         cfg = self.config
-        L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
+        L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd_a//cfg.n_head, cfg.block_size #TODO make this more accurate
         flops_per_token = 6*N + 12*L*H*Q*T
         flops_per_fwdbwd = flops_per_token * T
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
