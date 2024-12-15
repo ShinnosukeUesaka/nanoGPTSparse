@@ -58,7 +58,6 @@ class SparseCausalSelfAttention(nn.Module):
         x_a = self.c_attn_a(x_a)
         x_b = self.c_attn_b(x_b)
         kqv = interleave_tokens(x_a, x_b, mask_a)
-        print(f"interleaved x: {kqv.shape}")
         B, T, _ = kqv.size()
         kqv = kqv.view(B, T, -1, self.head_size)
         kqv = kqv.permute(0, 2, 1, 3) # (B, T, n_heads*3, head_size) -> (B, n_heads*3, T, head_size)
@@ -83,7 +82,6 @@ class SparseCausalSelfAttention(nn.Module):
         # output projection
         y_a = self.resid_dropout(self.c_proj_a(y_a))
         y_b = self.resid_dropout(self.c_proj_b(y_b))
-        #print(f"y_a: {y_a}")
         return y_a, y_b
 
 class MLP(nn.Module):
@@ -115,7 +113,6 @@ class SparseBlock(nn.Module):
         self.mlp_b = MLP(config.n_embd_b, bias=config.bias, dropout=config.dropout)
     def forward(self, x_a, x_b, mask_a):
         atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), mask_a)
-        print(f"atten_result_a: {atten_result_a}")
         x_a = x_a + atten_result_a
         x_b = x_b + atten_result_b
         x_a = x_a + self.mlp_a(self.ln_2_a(x_a))
