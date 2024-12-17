@@ -10,10 +10,27 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 import math
 import inspect
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+
+@dataclass
+class SparseGPTConfig:
+    block_size: int
+    vocab_size: int
+    n_layer: int
+    n_head: int
+    n_embd_a: int
+    n_embd_b: int
+    n_embd_attention: int
+    dropout: float
+    bias: bool
+    rope_condense_ratio: float = 1
+    rope_base: int = 500000
+
+
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -28,7 +45,7 @@ class LayerNorm(nn.Module):
 
 class SparseCausalSelfAttention(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config: SparseGPTConfig):
         super().__init__()
         assert config.n_embd_attention % config.n_head == 0
         self.head_size = config.n_embd_attention // config.n_head
@@ -54,7 +71,7 @@ class SparseCausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x_a, x_b, mask_a: torch.BoolTensor):
+    def forward(self, x_a, x_b, cos, sin, mask_a: torch.BoolTensor):
         x_a = self.c_attn_a(x_a)
         x_b = self.c_attn_b(x_b)
         kqv = interleave_tokens(x_a, x_b, mask_a)
@@ -62,8 +79,10 @@ class SparseCausalSelfAttention(nn.Module):
         kqv = kqv.view(B, T, -1, self.head_size)
         kqv = kqv.permute(0, 2, 1, 3) # (B, T, n_heads*3, head_size) -> (B, n_heads*3, T, head_size)
         q, k, v  = kqv.split(self.n_head, dim=1)
-
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        q = apply_rope(q, cos, sin)
+        k = apply_rope(k, cos, sin)
+        
+        # (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
@@ -100,36 +119,45 @@ class MLP(nn.Module):
         x = self.dropout(x)
         return x
 
+
+class LLaMAMLP(nn.Module):
+    def __init__(self, n_embd) -> None:
+        super().__init__()
+        self.fc_1 = nn.Linear(n_embd, 4 * n_embd)
+        self.fc_2 = nn.Linear(n_embd, 4 * n_embd)
+        self.proj = nn.Linear(4 * n_embd, n_embd)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_fc_1 = self.fc_1(x)
+        x_fc_2 = self.fc_2(x)
+        x = torch.nn.functional.silu(x_fc_1) * x_fc_2
+        return self.proj(x)
+
 class SparseBlock(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config: SparseGPTConfig):
         super().__init__()
         self.ln_1_a = LayerNorm(config.n_embd_a, bias=config.bias)
         self.ln_1_b = LayerNorm(config.n_embd_b, bias=config.bias)
         self.attn = SparseCausalSelfAttention(config)
         self.ln_2_a = LayerNorm(config.n_embd_a, bias=config.bias)
         self.ln_2_b = LayerNorm(config.n_embd_b, bias=config.bias)
-        self.mlp_a = MLP(config.n_embd_a, bias=config.bias, dropout=config.dropout)
-        self.mlp_b = MLP(config.n_embd_b, bias=config.bias, dropout=config.dropout)
-    def forward(self, x_a, x_b, mask_a):
-        atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), mask_a)
-        x_a = x_a + atten_result_a
-        x_b = x_b + atten_result_b
-        x_a = x_a + self.mlp_a(self.ln_2_a(x_a))
-        x_b = x_b + self.mlp_b(self.ln_2_b(x_b))
+        self.ln_3_a = LayerNorm(config.n_embd_a, bias=config.bias)  
+        self.ln_3_b = LayerNorm(config.n_embd_b, bias=config.bias)
+        self.mlp_a = LLaMAMLP(config.n_embd_a)
+        self.mlp_b = LLaMAMLP(config.n_embd_b)
+        self.ln_4_a = LayerNorm(config.n_embd_a, bias=config.bias)
+        self.ln_4_b = LayerNorm(config.n_embd_b, bias=config.bias)
+    def forward(self, x_a, x_b, cos, sin, mask_a):
+        atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), cos, sin, mask_a)
+        x_a = x_a + self.ln_2_a(atten_result_a)
+        x_b = x_b + self.ln_2_b(atten_result_b)
+        mlp_result_a = self.mlp_a(self.ln_3_a(x_a))
+        mlp_result_b = self.mlp_b(self.ln_3_b(x_b))
+        x_a = x_a + self.ln_4_a(mlp_result_a)
+        x_b = x_b + self.ln_4_b(mlp_result_b)
         return x_a, x_b
 
-@dataclass
-class SparseGPTConfig:
-    block_size: int
-    vocab_size: int
-    n_layer: int
-    n_head: int
-    n_embd_a: int
-    n_embd_b: int
-    n_embd_attention: int
-    dropout: float
-    bias: bool
 
 def interleave_tokens(tokens_a: torch.Tensor, tokens_b: torch.Tensor, mask_a: torch.Tensor) -> torch.Tensor:
     B, T = mask_a.size()
@@ -147,6 +175,7 @@ class SparseGPT(nn.Module):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
+        self.max_seq_length = config.block_size
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
@@ -202,10 +231,13 @@ class SparseGPT(nn.Module):
     def forward(self, idx: torch.Tensor, mask_a: torch.Tensor, targets=None):
         assert mask_a.shape == idx.shape
         device = idx.device
-        b, t = idx.size()
-        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0).expand(b, t) # shape (b, t)
+        B, T = idx.size()
+        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+        pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0).expand(B, T) # shape (B, T)
         
+        cos = self.cos[:T]
+        sin = self.sin[:T]
+
         # forward the GPT model itself
         idx_a = idx[mask_a]
         pos_a = pos[mask_a]
@@ -218,7 +250,7 @@ class SparseGPT(nn.Module):
         x_a = self.transformer.drop(tok_emb_a + pos_emb_a)
         x_b = self.transformer.drop(tok_emb_b + pos_emb_b)
         for block in self.transformer.h:
-            x_a, x_b = block(x_a, x_b, mask_a)
+            x_a, x_b = block(x_a, x_b, cos, sin, mask_a)
         x_a = self.transformer.ln_f_a(x_a)
         x_b = self.transformer.ln_f_b(x_b)
 
@@ -346,6 +378,65 @@ class SparseGPT(nn.Module):
         flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
         mfu = flops_achieved / flops_promised
         return mfu
+    @property
+    def max_seq_length(self) -> int:
+        return self._max_seq_length
+
+    @max_seq_length.setter
+    def max_seq_length(self, value: int) -> None:
+        """
+        When doing inference, the sequences used might be shorter than the model's context length.
+        This allows setting a smaller number to avoid allocating unused memory
+        """
+        if value > self.config.block_size:
+            raise ValueError(f"Cannot attend to {value}, block size is only {self.config.block_size}."
+                             " This is likely because the input text exceeds the supported context length of this model.")
+        self._max_seq_length = value
+        if not hasattr(self, "cos"):
+            # first call
+            cos, sin = self.rope_cache()
+            self.register_buffer("cos", cos, persistent=False)
+            self.register_buffer("sin", sin, persistent=False)
+        # override
+        elif value != self.cos.size(0):
+            self.cos, self.sin = self.rope_cache(device=self.cos.device)
+    
+    def rope_cache(self, device: Optional[torch.device] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        if self.config.rope_adjustments is None:
+            extra_config = None
+
+        else:
+            adjusted_params_required = ["factor", "low_freq_factor", "high_freq_factor", "original_max_seq_len"]
+            params_present = [param in self.config.rope_adjustments for param in adjusted_params_required]
+            num_params_present = sum(params_present)
+
+            if num_params_present == 0:
+                extra_config = None  # uses standard RoPE
+            elif num_params_present == 4:
+                # These parameters should always be used together so that we don't interfere with standard rope
+                extra_config = {
+                    "original_max_seq_len": self.config.rope_adjustments["original_max_seq_len"],
+                    "factor": self.config.rope_adjustments["factor"],
+                    "low_freq_factor": self.config.rope_adjustments["low_freq_factor"],
+                    "high_freq_factor": self.config.rope_adjustments["high_freq_factor"],
+                }
+            else:
+                # Some but not all parameters are specified; raise an error
+                missing_params = [param for param, present in zip(adjusted_params_required, params_present) if not present]
+                raise ValueError(
+                    f"The following adjusted RoPE parameters are missing in rope_adjustments: {', '.join(missing_params)}. "
+                    "All adjusted RoPE parameters must be specified together."
+                )
+
+        return build_rope_cache(
+            seq_len=self.max_seq_length,
+            n_elem=self.config.n_embd_attention // self.config.n_head, # head size
+            device=device,
+            condense_ratio=self.config.rope_condense_ratio,
+            base=self.config.rope_base,
+            extra_config=extra_config,
+        )
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
@@ -373,3 +464,139 @@ class SparseGPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+
+
+
+def build_rope_cache(
+    seq_len: int,
+    n_elem: int,
+    device: Optional[torch.device] = None,
+    base: int = 10000,
+    condense_ratio: int = 1,
+    extra_config: Optional[dict] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Enhanced Transformer with Rotary Position Embedding.
+
+    Args:
+        seq_len (int): Sequence length.
+        n_elem (int): Number of elements (head dimension).
+        device (torch.device, optional): Device for tensor allocations.
+        base (int, optional): Base for computing inverse frequencies.
+        condense_ratio (int, optional): Ratio to condense the position indices.
+        extra_config (dict, optional): Configuration parameters for frequency adjustments (used by Llama 3.1 and 3.2)
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Cosine and sine caches for RoPE.
+    """
+
+    # Compute the inverse frequencies theta
+    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, device=device).float() / n_elem))
+
+    if extra_config is not None:
+        orig_context_len = extra_config["original_max_seq_len"]
+        factor = extra_config["factor"]
+        low_freq_factor = extra_config["low_freq_factor"]
+        high_freq_factor = extra_config["high_freq_factor"]
+
+        wavelen = 2 * torch.pi / theta
+        ratio = orig_context_len / wavelen
+        smooth_factor = (ratio - low_freq_factor) / (high_freq_factor - low_freq_factor)
+        smooth_factor = torch.clamp(smooth_factor, min=0.0, max=1.0)
+
+        # Compute adjusted_theta without masked indexing
+        adjusted_theta = (1 - smooth_factor) * (theta / factor) + smooth_factor * theta
+        theta = adjusted_theta
+
+    # Create position indices `[0, 1, ..., seq_len - 1]`
+    seq_idx = torch.arange(seq_len, device=device) / condense_ratio
+
+    # Calculate the product of position index and $\theta_i$
+    idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
+
+    return torch.cos(idx_theta), torch.sin(idx_theta)
+
+
+def batched_index_select(t, dim, idx):
+    """index_select for batched index and unbatched t"""
+    if idx.dim() == 1:
+        return torch.index_select(t, dim, idx)
+
+    *batch_shape, idx_size = idx.shape
+    res = torch.index_select(t, dim, idx.reshape(-1))  # flat index
+    # split out single batch idx
+    res = res.view(*t.shape[:dim], -1, idx_size, *t.shape[dim + 1 :])
+    # move batch dim to front, this is np.rollaxis(res, dim, 0) for tensors
+    dims = [dim] + list(range(res.dim()))
+    del dims[dim + 1]
+    res = res.permute(dims)
+    # unflatten batch dims
+    res = res.view(*batch_shape, *res.shape[1:])
+    return res
+
+
+def batched_index_copy_(t, dim, idx, val):
+    """Index copy for batched t, idx, val"""
+
+    if t.device.type == "mps":
+        # Normalize negative dimensions
+        if dim < 0:
+            dim = t.dim() + dim
+        if idx.dim() == 1:
+            idx_shape = [1] * val.dim()
+            idx_shape[dim] = -1
+            idx_expanded = idx.view(*idx_shape)
+            idx_expanded = idx_expanded.expand_as(val)
+            t.scatter_(dim, idx_expanded, val)
+            return t
+
+        elif idx.dim() == 2:
+            assert dim != 0, "Cannot index the batch dimension"
+            batch_size = idx.size(0)
+            idx_size = idx.size(1)
+            assert batch_size == t.size(0) == val.size(0)
+
+            idx_shape = [batch_size] + [1] * (val.dim() - 1)
+            idx_shape[dim] = idx_size
+            idx_expanded = idx.view(*idx_shape)
+            idx_expanded = idx_expanded.expand_as(val)
+
+            t.scatter_(dim, idx_expanded, val)
+            return t
+        else:
+            raise NotImplementedError(f"idx.dim() == {idx.dim()} not supported")
+
+    else:
+        if idx.dim() == 1:
+            return t.index_copy_(dim, idx, val)
+
+        assert idx.dim() == 2, f"multiple batch dims not yet {idx.shape=}"
+        assert dim != 0, f"cannot index batch dim {dim=}"
+        batch_size, idx_size = idx.shape
+        assert batch_size == t.size(0)
+        assert batch_size == val.size(0)
+
+        # if we can view the batch and indexed dimensions together, we could
+        # do index trickery. This is, sadly, not the case for kvcache so we
+        # fall back to for loop
+        for i in range(batch_size):
+            unbatched_dim = dim if dim < 0 else dim - 1
+            t[i].index_copy_(unbatched_dim, idx[i], val[i])
+        return t
+
+
+def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    head_size = x.size(-1)
+    x1 = x[..., : head_size // 2]  # (B, nh, T, hs/2)
+    x2 = x[..., head_size // 2 :]  # (B, nh, T, hs/2)
+    rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hs)
+    if cos.dim() > 1:
+        # batch dimensions must align
+        # sin/cos are (B, T, hs) so we unsqeeze -3 for nh
+        # we count from back because all of apply_rope does
+        cos = cos.unsqueeze(-3)
+        sin = sin.unsqueeze(-3)
+
+    roped = (x * cos) + (rotated * sin)
+    return roped.to(dtype=x.dtype)
+
