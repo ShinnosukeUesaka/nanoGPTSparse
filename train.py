@@ -77,6 +77,7 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 
 # sparse model settings
 sparse_model = False
+true_mask= False
 n_embd_a = n_embd
 n_embd_b = n_embd
 n_embd_attention = n_embd
@@ -124,7 +125,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
-def get_batch(split, load_mask=False):
+def get_batch(split, load_mask=False, true_mask=true_mask):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
@@ -139,6 +140,10 @@ def get_batch(split, load_mask=False):
     y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
     if load_mask:
         mask = torch.stack([torch.from_numpy((mask[i:i+block_size]).astype(np.bool_)) for i in ix])
+    if true_mask:
+        # mask should be all true
+        true_mask = torch.ones_like(mask, dtype=torch.bool)
+        mask = true_mask
 
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
@@ -182,6 +187,7 @@ if init_from == 'scratch':
    
     if sparse_model:
         gptconf = SparseGPTConfig(**model_args)
+        print(f"SparseGPTConfig: {gptconf}")
         model = SparseGPT(gptconf)
     else:
         gptconf = GPTConfig(**model_args)
@@ -199,6 +205,7 @@ elif init_from == 'resume':
     # create the model
     if sparse_model:
         gptconf = SparseGPTConfig(**model_args)
+        print(f"SparseGPTConfig: {gptconf}")
         model = SparseGPT(gptconf)
     else:
         gptconf = GPTConfig(**model_args)
@@ -257,10 +264,10 @@ def estimate_loss():
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            X, Y, mask_a = get_batch(split, load_mask=True)
+            X, Y, mask_a = get_batch(split, load_mask=True, true_mask=true_mask)
             with ctx:
                 if sparse_model:
-                    logits, loss = model(X, mask_a, Y)
+                    logits, loss, loss_a, loss_b = model(X, mask_a, Y)
                 else:
                     logits, loss = model(X, Y)
             losses[k] = loss.item()
@@ -288,7 +295,7 @@ if wandb_log and master_process:
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
-X, Y, mask_a = get_batch('train', load_mask=True) # fetch the very first batch
+X, Y, mask_a = get_batch('train', load_mask=True, true_mask=true_mask) # fetch the very first batch
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
@@ -339,12 +346,12 @@ while True:
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
             if sparse_model:
-                logits, loss = model(X, mask_a, Y)
+                logits, loss, loss_a, loss_b = model(X, mask_a, Y)
             else:
                 logits, loss = model(X, Y)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
-        X, Y, mask_a = get_batch('train', load_mask=True)
+        X, Y, mask_a = get_batch('train', load_mask=True, true_mask=true_mask)
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
@@ -365,11 +372,14 @@ while True:
         # get loss as float. note: this is a CPU-GPU sync point
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
         lossf = loss.item() * gradient_accumulation_steps
+        loss_a_f = loss_a.item()
+        loss_b_f = loss_b.item()
         if local_iter_num >= 5: # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-        wandb.log({"loss": lossf, "iter": iter_num})
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        if wandb_log:
+            wandb.log({"loss": lossf, "iter": iter_num, "loss_a": loss_a_f, "loss_b": loss_b_f})
+        print(f"iter {iter_num}: loss {lossf:.4f}, loss_a {loss_a_f:.4f}, loss_b {loss_b_f:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
     iter_num += 1
     local_iter_num += 1
 

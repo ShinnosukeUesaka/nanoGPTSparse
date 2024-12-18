@@ -28,7 +28,8 @@ class SparseGPTConfig:
     dropout: float
     bias: bool
     rope_condense_ratio: float = 1
-    rope_base: int = 500000
+    rope_base: int = 100000
+    rope_adjustments = None
 
 
 
@@ -169,8 +170,9 @@ class SparseGPT(nn.Module):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
-        self.max_seq_length = config.block_size
         self.config = config
+        self.max_seq_length = config.block_size
+        
 
         self.transformer = nn.ModuleDict(dict(
             wte_a = nn.Embedding(config.vocab_size, config.n_embd_a),
@@ -247,7 +249,10 @@ class SparseGPT(nn.Module):
             logits_a = self.lm_head_a(x_a)
             logits_b = self.lm_head_b(x_b)
             logits = interleave_tokens(logits_a, logits_b, mask_a)
-            loss = F.cross_entropy(logits.view(-1, self.config.vocab_size), targets.flatten(), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, self.config.vocab_size), targets.flatten(), ignore_index=-1, reduction='none')
+            loss_a = loss[mask_a.flatten()].mean()
+            loss_b = loss[~mask_a.flatten()].mean()
+            loss = loss.mean()
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits_a = self.lm_head_a(x_a[:, [-1], :]) # note: using list [-1] to preserve the time dim
@@ -255,18 +260,8 @@ class SparseGPT(nn.Module):
             logits = interleave_tokens(logits_a, logits_b, mask_a)
             loss = None
 
-        return logits, loss
+        return logits, loss, loss_a, loss_b
 
-    def crop_block_size(self, block_size):
-        # model surgery to decrease the block size if necessary
-        # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
-        # but want to use a smaller block size for some smaller, simpler model
-        assert block_size <= self.config.block_size
-        self.config.block_size = block_size
-        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
-        for block in self.transformer.h:
-            if hasattr(block.attn, 'bias'):
-                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
