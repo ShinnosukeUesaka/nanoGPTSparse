@@ -137,25 +137,19 @@ class SparseBlock(nn.Module):
 
     def __init__(self, config: SparseGPTConfig):
         super().__init__()
-        self.ln_1_a = LayerNorm(config.n_embd_a, bias=config.bias)
-        self.ln_1_b = LayerNorm(config.n_embd_b, bias=config.bias)
+        self.ln_1_a = RMSNorm(config.n_embd_a)
+        self.ln_1_b = RMSNorm(config.n_embd_b)
         self.attn = SparseCausalSelfAttention(config)
-        self.ln_2_a = LayerNorm(config.n_embd_a, bias=config.bias)
-        self.ln_2_b = LayerNorm(config.n_embd_b, bias=config.bias)
-        self.ln_3_a = LayerNorm(config.n_embd_a, bias=config.bias)  
-        self.ln_3_b = LayerNorm(config.n_embd_b, bias=config.bias)
+        self.ln_2_a = RMSNorm(config.n_embd_a)
+        self.ln_2_b = RMSNorm(config.n_embd_b)
         self.mlp_a = LLaMAMLP(config.n_embd_a)
         self.mlp_b = LLaMAMLP(config.n_embd_b)
-        self.ln_4_a = LayerNorm(config.n_embd_a, bias=config.bias)
-        self.ln_4_b = LayerNorm(config.n_embd_b, bias=config.bias)
     def forward(self, x_a, x_b, cos, sin, mask_a):
         atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), cos, sin, mask_a)
-        x_a = x_a + self.ln_2_a(atten_result_a)
-        x_b = x_b + self.ln_2_b(atten_result_b)
-        mlp_result_a = self.mlp_a(self.ln_3_a(x_a))
-        mlp_result_b = self.mlp_b(self.ln_3_b(x_b))
-        x_a = x_a + self.ln_4_a(mlp_result_a)
-        x_b = x_b + self.ln_4_b(mlp_result_b)
+        x_a = x_a + atten_result_a
+        x_b = x_b + atten_result_b
+        x_a = x_a + self.mlp_a(self.ln_2_a(x_a))
+        x_b = x_b + self.mlp_b(self.ln_2_b(x_b))
         return x_a, x_b
 
 
@@ -240,15 +234,9 @@ class SparseGPT(nn.Module):
 
         # forward the GPT model itself
         idx_a = idx[mask_a]
-        pos_a = pos[mask_a]
         idx_b = idx[~mask_a]
-        pos_b = pos[~mask_a]
-        tok_emb_a = self.transformer.wte_a(idx_a) # token embeddings of shape (b, t, n_embd)
-        tok_emb_b = self.transformer.wte_b(idx_b) # token embeddings of shape (b, t, n_embd)
-        pos_emb_a = self.transformer.wpe_a(pos_a) # position embeddings of shape (b, t, n_embd)
-        pos_emb_b = self.transformer.wpe_b(pos_b) # position embeddings of shape (t, n_embd)
-        x_a = self.transformer.drop(tok_emb_a + pos_emb_a)
-        x_b = self.transformer.drop(tok_emb_b + pos_emb_b)
+        x_a = self.transformer.wte_a(idx_a) # token embeddings of shape (b, t, n_embd)
+        x_b = self.transformer.wte_b(idx_b) # token embeddings of shape (b, t, n_embd)
         for block in self.transformer.h:
             x_a, x_b = block(x_a, x_b, cos, sin, mask_a)
         x_a = self.transformer.ln_f_a(x_a)
@@ -600,3 +588,30 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     roped = (x * cos) + (rotated * sin)
     return roped.to(dtype=x.dtype)
 
+
+
+class RMSNorm(torch.nn.Module):
+    """Root Mean Square Layer Normalization.
+
+    Derived from https://github.com/bzhangGo/rmsnorm/blob/master/rmsnorm_torch.py. BSD 3-Clause License:
+    https://github.com/bzhangGo/rmsnorm/blob/master/LICENSE.
+    """
+
+    def __init__(self, size: int, dim: int = -1, eps: float = 1e-6, add_unit_offset: bool = False) -> None:
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(size))
+        self.eps = eps
+        self.dim = dim
+        self.add_unit_offset = add_unit_offset
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        dtype = x.dtype
+        x = x.float()
+        # NOTE: the original RMSNorm paper implementation is not equivalent
+        norm_x = torch.mean(x * x, dim=self.dim, keepdim=True)
+        x_normed = x * torch.rsqrt(norm_x + self.eps)
+        weight = (1 + self.weight) if self.add_unit_offset else self.weight
+        return (x_normed * weight.float()).to(dtype=dtype)
+
+    def reset_parameters(self) -> None:
+        torch.nn.init.ones_(self.weight)
