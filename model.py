@@ -157,13 +157,17 @@ class SparseBlock(nn.Module):
 def interleave_tokens(tokens_a: torch.Tensor, tokens_b: torch.Tensor, mask_a: torch.Tensor) -> torch.Tensor:
     B, T = mask_a.size()
     C = tokens_a.size(-1)
-
+    
+    if mask_a.all():
+        return tokens_a.view(B, T, C)
+    
     interleaved = torch.zeros(B, T, C, device=tokens_a.device, dtype=tokens_a.dtype)
     flattend_text_mask = mask_a.view(-1)
     interleaved.view(-1, C)[flattend_text_mask] = tokens_a.view(-1, C)
     interleaved.view(-1, C)[~flattend_text_mask] = tokens_b.view(-1, C)
     interleaved = interleaved.contiguous()
     return interleaved
+
 class SparseGPT(nn.Module):
 
     def __init__(self, config: SparseGPTConfig):
@@ -243,12 +247,13 @@ class SparseGPT(nn.Module):
             x_a, x_b = block(x_a, x_b, cos, sin, mask_a)
         x_a = self.transformer.ln_f_a(x_a)
         x_b = self.transformer.ln_f_b(x_b)
-
+        
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits_a = self.lm_head_a(x_a)
             logits_b = self.lm_head_b(x_b)
             logits = interleave_tokens(logits_a, logits_b, mask_a)
+            #raise Exception("Stop")
             loss = F.cross_entropy(logits.view(-1, self.config.vocab_size), targets.flatten(), ignore_index=-1, reduction='none')
             loss_a = loss[mask_a.flatten()].mean()
             loss_b = loss[~mask_a.flatten()].mean()
@@ -259,6 +264,8 @@ class SparseGPT(nn.Module):
             logits_b = self.lm_head_b(x_b[:, [-1], :]) # note: using list [-1] to preserve the time dim
             logits = interleave_tokens(logits_a, logits_b, mask_a)
             loss = None
+            loss_a = None
+            loss_b = None
 
         return logits, loss, loss_a, loss_b
 
