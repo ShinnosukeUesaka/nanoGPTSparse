@@ -7,14 +7,15 @@ https://github.com/openai/gpt-2/blob/master/src/model.py
 https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
 """
 
-import math
 import inspect
+import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+
 
 @dataclass
 class SparseGPTConfig:
@@ -25,7 +26,6 @@ class SparseGPTConfig:
     n_embd_a: int
     n_embd_b: int
     n_embd_attention: int
-    dropout: float
     bias: bool
     rope_condense_ratio: float = 1
     rope_base: int = 100000
@@ -57,13 +57,11 @@ class SparseCausalSelfAttention(nn.Module):
         self.c_proj_a = nn.Linear(config.n_embd_attention, config.n_embd_a, bias=config.bias)
         self.c_proj_b = nn.Linear(config.n_embd_attention, config.n_embd_b, bias=config.bias)
         # regularization
-        self.attn_dropout = nn.Dropout(config.dropout)
-        self.resid_dropout = nn.Dropout(config.dropout)
+
         self.n_head = config.n_head
         self.n_embd_attention = config.n_embd_attention
         self.n_embd_a = config.n_embd_a
         self.n_embd_b = config.n_embd_b
-        self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -86,13 +84,12 @@ class SparseCausalSelfAttention(nn.Module):
         # (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
-            att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, -1) # re-assemble all head outputs side by side
 
@@ -100,24 +97,22 @@ class SparseCausalSelfAttention(nn.Module):
         y_b = y[~mask_a]
 
         # output projection
-        y_a = self.resid_dropout(self.c_proj_a(y_a))
-        y_b = self.resid_dropout(self.c_proj_b(y_b))
+        y_a = self.c_proj_a(y_a)
+        y_b = self.c_proj_b(y_b)
         return y_a, y_b
 
 class MLP(nn.Module):
 
-    def __init__(self, n_embd, bias, dropout):
+    def __init__(self, n_embd, bias):
         super().__init__()
         self.c_fc    = nn.Linear(n_embd, 4 * n_embd, bias=bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * n_embd, n_embd, bias=bias)
-        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
-        x = self.dropout(x)
         return x
 
 
@@ -183,7 +178,6 @@ class SparseGPT(nn.Module):
             wte_b = nn.Embedding(config.vocab_size, config.n_embd_b),
             wpe_a = nn.Embedding(config.block_size, config.n_embd_a),
             wpe_b = nn.Embedding(config.block_size, config.n_embd_b),
-            drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([SparseBlock(config) for _ in range(config.n_layer)]),
             ln_f_a = LayerNorm(config.n_embd_a, bias=config.bias),
             ln_f_b = LayerNorm(config.n_embd_b, bias=config.bias),
@@ -230,10 +224,8 @@ class SparseGPT(nn.Module):
 
     def forward(self, idx: torch.Tensor, mask_a: torch.Tensor, targets=None):
         assert mask_a.shape == idx.shape
-        device = idx.device
         B, T = idx.size()
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0).expand(B, T) # shape (B, T)
         
         cos = self.cos[:T]
         sin = self.sin[:T]
@@ -253,6 +245,7 @@ class SparseGPT(nn.Module):
             logits_a = self.lm_head_a(x_a)
             logits_b = self.lm_head_b(x_b)
             logits = interleave_tokens(logits_a, logits_b, mask_a)
+            return logits
             #raise Exception("Stop")
             loss = F.cross_entropy(logits.view(-1, self.config.vocab_size), targets.flatten(), ignore_index=-1, reduction='none')
             loss_a = loss[mask_a.flatten()].mean()
@@ -263,71 +256,15 @@ class SparseGPT(nn.Module):
             logits_a = self.lm_head_a(x_a[:, [-1], :]) # note: using list [-1] to preserve the time dim
             logits_b = self.lm_head_b(x_b[:, [-1], :]) # note: using list [-1] to preserve the time dim
             logits = interleave_tokens(logits_a, logits_b, mask_a)
+            return logits
             loss = None
             loss_a = None
             loss_b = None
 
         return logits, loss, loss_a, loss_b
 
-
-    @classmethod
-    def from_pretrained(cls, model_type, override_args=None):
-        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
-        override_args = override_args or {} # default to empty dict
-        # only dropout can be overridden see more notes below
-        assert all(k == 'dropout' for k in override_args)
-        from transformers import GPT2LMHeadModel
-        print("loading weights from pretrained gpt: %s" % model_type)
-
-        # n_layer, n_head and n_embd are determined from model_type
-        config_args = {
-            'gpt2':         dict(n_layer=12, n_head=12, n_embd=768),  # 124M params
-            'gpt2-medium':  dict(n_layer=24, n_head=16, n_embd=1024), # 350M params
-            'gpt2-large':   dict(n_layer=36, n_head=20, n_embd=1280), # 774M params
-            'gpt2-xl':      dict(n_layer=48, n_head=25, n_embd=1600), # 1558M params
-        }[model_type]
-        print("forcing vocab_size=50257, block_size=1024, bias=True")
-        config_args['vocab_size'] = 50257 # always 50257 for GPT model checkpoints
-        config_args['block_size'] = 1024 # always 1024 for GPT model checkpoints
-        config_args['bias'] = True # always True for GPT model checkpoints
-        # we can override the dropout rate, if desired
-        if 'dropout' in override_args:
-            print(f"overriding dropout rate to {override_args['dropout']}")
-            config_args['dropout'] = override_args['dropout']
-        # create a from-scratch initialized minGPT model
-        config = SparseGPTConfig(**config_args)
-        model = SparseGPT(config)
-        sd = model.state_dict()
-        sd_keys = sd.keys()
-        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
-
-        # init a huggingface/transformers model
-        model_hf = GPT2LMHeadModel.from_pretrained(model_type)
-        sd_hf = model_hf.state_dict()
-
-        # copy while ensuring all of the parameters are aligned and match in names and shapes
-        sd_keys_hf = sd_hf.keys()
-        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.masked_bias')] # ignore these, just a buffer
-        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.bias')] # same, just the mask (buffer)
-        transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
-        # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla Linear
-        # this means that we have to transpose these weights when we import them
-        assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
-        for k in sd_keys_hf:
-            if any(k.endswith(w) for w in transposed):
-                # special treatment for the Conv1D weights we need to transpose
-                assert sd_hf[k].shape[::-1] == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k].t())
-            else:
-                # vanilla copy over the other parameters
-                assert sd_hf[k].shape == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k])
-
-        return model
-
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+        #TODO: delete this
         # start with all of the candidate parameters
         param_dict = {pn: p for pn, p in self.named_parameters()}
         # filter out those that do not require grad
@@ -353,6 +290,17 @@ class SparseGPT(nn.Module):
 
         return optimizer
 
+    def get_param_groups_for_optimizer(self, weight_decay):
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+        return optim_groups
+    
     def estimate_mfu(self, fwdbwd_per_iter, dt):
         """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
         # first estimate the number of flops we do per iteration.
