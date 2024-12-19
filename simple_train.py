@@ -36,6 +36,7 @@ def main(config: MasterConfig):
             logits = model(x, input_mask, y)
             loss, loss_a, loss_b = loss_fn(logits, y, mask)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
         optimizer.step()
         scheduler.step()
 
