@@ -2,6 +2,7 @@ import argparse
 import logging
 import math
 import os
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 
@@ -17,7 +18,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 def main(config: MasterConfig):
-    wandb.init(project=config.wandb_project, name=config.wandb_run_name, mode='online' if config.wandb_log else 'disabled')
+    wandb.init(project=config.wandb_project, name=config.wandb_run_name, mode='online' if config.wandb_log else 'disabled', config=asdict(config))
     best_val_loss = 1e9
 
     model = SparseGPT(config.model_config)
@@ -29,7 +30,7 @@ def main(config: MasterConfig):
 
     for i in range(config.max_iters):
         x, y, mask = get_batch(config.dataset_dir, config.block_size, config.batch_size, 'train', config.device, load_mask=True)
-        input_mask = torch.ones_like(mask, dtype=torch.bool) if not config.use_only_a else mask
+        input_mask = torch.ones_like(mask, dtype=torch.bool) if config.use_only_a else mask
 
         optimizer.zero_grad()
         with torch.autocast(device_type=config.device, dtype=torch.bfloat16, enabled=(config.device == 'cuda')):
@@ -114,7 +115,8 @@ def eval_fn(model: SparseGPT, eval_iters: int, config: MasterConfig):
     losses_b = torch.zeros(eval_iters)
     for k in range(eval_iters):
         X, Y, mask_a = get_batch(config.dataset_dir, config.block_size, config.batch_size, 'val', config.device, load_mask=True)
-        logits = model(X, mask_a, Y)
+        input_mask = torch.ones_like(mask_a, dtype=torch.bool) if config.use_only_a else mask_a
+        logits = model(idx=X, mask_a=input_mask, targets=Y)
         loss, loss_a, loss_b = loss_fn(logits, Y, mask_a)
         losses[k] = loss.item()
         losses_a[k] = loss_a.item()
