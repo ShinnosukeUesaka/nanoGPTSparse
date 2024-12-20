@@ -27,6 +27,7 @@ class SparseGPTConfig:
     n_embd_b: int
     n_embd_attention: int
     bias: bool
+    dropout: float
     rope_condense_ratio: float = 1
     rope_base: int = 100000
     rope_adjustments = None
@@ -57,11 +58,14 @@ class SparseCausalSelfAttention(nn.Module):
         self.c_proj_a = nn.Linear(config.n_embd_attention, config.n_embd_a, bias=config.bias)
         self.c_proj_b = nn.Linear(config.n_embd_attention, config.n_embd_b, bias=config.bias)
         # regularization
-
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.resid_dropout_a = nn.Dropout(config.dropout)
+        self.resid_dropout_b = nn.Dropout(config.dropout)
         self.n_head = config.n_head
         self.n_embd_attention = config.n_embd_attention
         self.n_embd_a = config.n_embd_a
         self.n_embd_b = config.n_embd_b
+        self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -84,13 +88,15 @@ class SparseCausalSelfAttention(nn.Module):
         # (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+            
         y = y.transpose(1, 2).contiguous().view(B, T, -1) # re-assemble all head outputs side by side
 
         y_a = y[mask_a]
@@ -99,6 +105,8 @@ class SparseCausalSelfAttention(nn.Module):
         # output projection
         y_a = self.c_proj_a(y_a)
         y_b = self.c_proj_b(y_b)
+        y_a = self.resid_dropout_a(y_a)
+        y_b = self.resid_dropout_b(y_b)
         return y_a, y_b
 
 class MLP(nn.Module):
@@ -117,17 +125,20 @@ class MLP(nn.Module):
 
 
 class LLaMAMLP(nn.Module):
-    def __init__(self, n_embd) -> None:
+    def __init__(self, n_embd, dropout) -> None:
         super().__init__()
         self.fc_1 = nn.Linear(n_embd, 4 * n_embd)
         self.fc_2 = nn.Linear(n_embd, 4 * n_embd)
         self.proj = nn.Linear(4 * n_embd, n_embd)
-
+        self.dropout = nn.Dropout(dropout)
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_fc_1 = self.fc_1(x)
         x_fc_2 = self.fc_2(x)
         x = torch.nn.functional.silu(x_fc_1) * x_fc_2
-        return self.proj(x)
+        x = self.proj(x)
+        x = self.dropout(x)
+        return x
 
 class SparseBlock(nn.Module):
 
@@ -138,8 +149,8 @@ class SparseBlock(nn.Module):
         self.attn = SparseCausalSelfAttention(config)
         self.ln_2_a = RMSNorm(config.n_embd_a)
         self.ln_2_b = RMSNorm(config.n_embd_b)
-        self.mlp_a = LLaMAMLP(config.n_embd_a)
-        self.mlp_b = LLaMAMLP(config.n_embd_b)
+        self.mlp_a = LLaMAMLP(config.n_embd_a, config.dropout)
+        self.mlp_b = LLaMAMLP(config.n_embd_b, config.dropout)
     def forward(self, x_a, x_b, cos, sin, mask_a):
         atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), cos, sin, mask_a)
         x_a = x_a + atten_result_a
