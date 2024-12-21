@@ -1,0 +1,32 @@
+number of parameters: 56.61M
+iter 0: loss 8.796276092529297, loss_a 8.816024780273438, loss_b 8.751352310180664, lr 1.188118811881188e-05
+Traceback (most recent call last):
+  File "/home/jupyter/nanoGPTSparse/simple_train.py", line 130, in <module>
+    main(config_instance)
+  File "/home/jupyter/nanoGPTSparse/simple_train.py", line 50, in main
+    loss, loss_a, loss_b = eval_fn(model, config.eval_iters, config)
+  File "/opt/conda/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "/home/jupyter/nanoGPTSparse/simple_train.py", line 117, in eval_fn
+    logits = model(X, mask_a, Y)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/jupyter/nanoGPTSparse/model.py", line 239, in forward
+    x_a, x_b = block(x_a, x_b, cos, sin, mask_a)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/jupyter/nanoGPTSparse/model.py", line 144, in forward
+    atten_result_a, atten_result_b =  self.attn(self.ln_1_a(x_a), self.ln_1_b(x_b), cos, sin, mask_a)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/jupyter/nanoGPTSparse/model.py", line 76, in forward
+    kqv = interleave_tokens(x_a, x_b, mask_a)
+  File "/home/jupyter/nanoGPTSparse/model.py", line 162, in interleave_tokens
+    interleaved.view(-1, C)[~flattend_text_mask] = tokens_b.view(-1, C)
+KeyboardInterrupt

@@ -1,0 +1,107 @@
+step 0: train loss 8.7256, val loss 8.7217
+iter 0: loss 8.7211, loss_a 8.7211, loss_b nan, time 44427.44ms, mfu -100.00%
+iter 10: loss 6.6276, loss_a 6.6276, loss_b nan, time 1314.77ms, mfu 8.75%
+iter 20: loss 5.8851, loss_a 5.8851, loss_b nan, time 1309.79ms, mfu 8.75%
+iter 30: loss 4.7917, loss_a 4.7917, loss_b nan, time 1308.28ms, mfu 8.75%
+iter 40: loss 3.5776, loss_a 3.5776, loss_b nan, time 1310.57ms, mfu 8.76%
+iter 50: loss 3.0843, loss_a 3.0843, loss_b nan, time 1313.82ms, mfu 8.76%
+iter 60: loss 2.8638, loss_a 2.8638, loss_b nan, time 1313.69ms, mfu 8.76%
+iter 70: loss 2.6975, loss_a 2.6975, loss_b nan, time 1312.74ms, mfu 8.76%
+iter 80: loss 2.5780, loss_a 2.5780, loss_b nan, time 1315.01ms, mfu 8.75%
+iter 90: loss 2.4032, loss_a 2.4032, loss_b nan, time 1315.00ms, mfu 8.75%
+iter 100: loss 2.2552, loss_a 2.2552, loss_b nan, time 1314.16ms, mfu 8.75%
+iter 110: loss 2.1317, loss_a 2.1317, loss_b nan, time 1314.62ms, mfu 8.75%
+iter 120: loss 2.0890, loss_a 2.0890, loss_b nan, time 1312.63ms, mfu 8.75%
+iter 130: loss 1.9427, loss_a 1.9427, loss_b nan, time 1317.38ms, mfu 8.75%
+iter 140: loss 1.8328, loss_a 1.8328, loss_b nan, time 1312.86ms, mfu 8.75%
+iter 150: loss 1.7842, loss_a 1.7842, loss_b nan, time 1314.48ms, mfu 8.75%
+iter 160: loss 1.6472, loss_a 1.6472, loss_b nan, time 1314.97ms, mfu 8.75%
+iter 170: loss 1.5832, loss_a 1.5832, loss_b nan, time 1313.77ms, mfu 8.75%
+iter 180: loss 1.4888, loss_a 1.4888, loss_b nan, time 1314.67ms, mfu 8.75%
+iter 190: loss 1.5742, loss_a 1.5742, loss_b nan, time 1315.42ms, mfu 8.75%
+iter 200: loss 1.4576, loss_a 1.4576, loss_b nan, time 1315.71ms, mfu 8.75%
+iter 210: loss 1.5137, loss_a 1.5137, loss_b nan, time 1313.80ms, mfu 8.75%
+iter 220: loss 1.4452, loss_a 1.4452, loss_b nan, time 1317.50ms, mfu 8.75%
+iter 230: loss 1.4687, loss_a 1.4687, loss_b nan, time 1313.73ms, mfu 8.75%
+iter 240: loss 1.3325, loss_a 1.3325, loss_b nan, time 1315.04ms, mfu 8.75%
+iter 250: loss 1.4033, loss_a 1.4033, loss_b nan, time 1314.20ms, mfu 8.75%
+iter 260: loss 1.4207, loss_a 1.4207, loss_b nan, time 1314.60ms, mfu 8.75%
+iter 270: loss 1.4032, loss_a 1.4032, loss_b nan, time 1316.67ms, mfu 8.75%
+iter 280: loss 1.3945, loss_a 1.3945, loss_b nan, time 1314.35ms, mfu 8.75%
+iter 290: loss 1.3482, loss_a 1.3482, loss_b nan, time 1313.72ms, mfu 8.75%
+iter 300: loss 1.3290, loss_a 1.3290, loss_b nan, time 1314.05ms, mfu 8.75%
+iter 310: loss 1.2843, loss_a 1.2843, loss_b nan, time 1315.26ms, mfu 8.75%
+iter 320: loss 1.4097, loss_a 1.4097, loss_b nan, time 1314.19ms, mfu 8.75%
+iter 330: loss 1.3381, loss_a 1.3381, loss_b nan, time 1314.14ms, mfu 8.75%
+iter 340: loss 1.3963, loss_a 1.3963, loss_b nan, time 1313.96ms, mfu 8.75%
+iter 350: loss 1.2403, loss_a 1.2403, loss_b nan, time 1314.44ms, mfu 8.75%
+iter 360: loss 1.2056, loss_a 1.2056, loss_b nan, time 1315.41ms, mfu 8.75%
+iter 370: loss 1.3001, loss_a 1.3001, loss_b nan, time 1314.85ms, mfu 8.75%
+iter 380: loss 1.2790, loss_a 1.2790, loss_b nan, time 1314.27ms, mfu 8.75%
+iter 390: loss 1.3302, loss_a 1.3302, loss_b nan, time 1316.84ms, mfu 8.75%
+iter 400: loss 1.2422, loss_a 1.2422, loss_b nan, time 1315.52ms, mfu 8.75%
+iter 410: loss 1.2985, loss_a 1.2985, loss_b nan, time 1314.50ms, mfu 8.75%
+iter 420: loss 1.2368, loss_a 1.2368, loss_b nan, time 1314.13ms, mfu 8.75%
+iter 430: loss 1.2611, loss_a 1.2611, loss_b nan, time 1314.26ms, mfu 8.75%
+iter 440: loss 1.2557, loss_a 1.2557, loss_b nan, time 1312.59ms, mfu 8.75%
+iter 450: loss 1.2090, loss_a 1.2090, loss_b nan, time 1313.97ms, mfu 8.75%
+iter 460: loss 1.2432, loss_a 1.2432, loss_b nan, time 1314.09ms, mfu 8.75%
+iter 470: loss 1.2439, loss_a 1.2439, loss_b nan, time 1315.76ms, mfu 8.75%
+iter 480: loss 1.2179, loss_a 1.2179, loss_b nan, time 1314.70ms, mfu 8.75%
+iter 490: loss 1.3035, loss_a 1.3035, loss_b nan, time 1315.00ms, mfu 8.75%
+iter 500: loss 1.1085, loss_a 1.1085, loss_b nan, time 1312.90ms, mfu 8.75%
+iter 510: loss 1.2015, loss_a 1.2015, loss_b nan, time 1314.88ms, mfu 8.75%
+iter 520: loss 1.1969, loss_a 1.1969, loss_b nan, time 1313.71ms, mfu 8.75%
+iter 530: loss 1.0268, loss_a 1.0268, loss_b nan, time 1313.27ms, mfu 8.75%
+iter 540: loss 1.1769, loss_a 1.1769, loss_b nan, time 1313.81ms, mfu 8.75%
+iter 550: loss 1.1423, loss_a 1.1423, loss_b nan, time 1315.48ms, mfu 8.75%
+iter 560: loss 1.1750, loss_a 1.1750, loss_b nan, time 1312.72ms, mfu 8.75%
+iter 570: loss 1.1519, loss_a 1.1519, loss_b nan, time 1312.77ms, mfu 8.75%
+iter 580: loss 1.1292, loss_a 1.1292, loss_b nan, time 1313.16ms, mfu 8.75%
+iter 590: loss 1.1754, loss_a 1.1754, loss_b nan, time 1312.75ms, mfu 8.75%
+iter 600: loss 1.1385, loss_a 1.1385, loss_b nan, time 1314.18ms, mfu 8.75%
+iter 610: loss 1.0948, loss_a 1.0948, loss_b nan, time 1313.46ms, mfu 8.75%
+iter 620: loss 1.1201, loss_a 1.1201, loss_b nan, time 1311.97ms, mfu 8.75%
+iter 630: loss 1.1502, loss_a 1.1502, loss_b nan, time 1315.04ms, mfu 8.75%
+iter 640: loss 1.0839, loss_a 1.0839, loss_b nan, time 1314.77ms, mfu 8.75%
+iter 650: loss 1.0532, loss_a 1.0532, loss_b nan, time 1312.70ms, mfu 8.75%
+iter 660: loss 1.1144, loss_a 1.1144, loss_b nan, time 1312.37ms, mfu 8.75%
+iter 670: loss 1.0958, loss_a 1.0958, loss_b nan, time 1311.42ms, mfu 8.76%
+iter 680: loss 1.0995, loss_a 1.0995, loss_b nan, time 1313.59ms, mfu 8.76%
+iter 690: loss 1.1338, loss_a 1.1338, loss_b nan, time 1313.07ms, mfu 8.76%
+iter 700: loss 1.0857, loss_a 1.0857, loss_b nan, time 1313.35ms, mfu 8.76%
+iter 710: loss 1.0937, loss_a 1.0937, loss_b nan, time 1313.15ms, mfu 8.76%
+iter 720: loss 1.0971, loss_a 1.0971, loss_b nan, time 1312.69ms, mfu 8.76%
+iter 730: loss 1.0955, loss_a 1.0955, loss_b nan, time 1314.58ms, mfu 8.76%
+iter 740: loss 1.0589, loss_a 1.0589, loss_b nan, time 1312.63ms, mfu 8.76%
+iter 750: loss 1.0812, loss_a 1.0812, loss_b nan, time 1311.61ms, mfu 8.76%
+iter 760: loss 1.0379, loss_a 1.0379, loss_b nan, time 1314.25ms, mfu 8.76%
+iter 770: loss 0.9950, loss_a 0.9950, loss_b nan, time 1316.22ms, mfu 8.75%
+iter 780: loss 1.0749, loss_a 1.0749, loss_b nan, time 1312.10ms, mfu 8.76%
+iter 790: loss 1.0525, loss_a 1.0525, loss_b nan, time 1312.58ms, mfu 8.76%
+iter 800: loss 0.9831, loss_a 0.9831, loss_b nan, time 1314.67ms, mfu 8.76%
+iter 810: loss 1.0532, loss_a 1.0532, loss_b nan, time 1311.31ms, mfu 8.76%
+iter 820: loss 1.0638, loss_a 1.0638, loss_b nan, time 1313.34ms, mfu 8.76%
+iter 830: loss 0.9937, loss_a 0.9937, loss_b nan, time 1313.96ms, mfu 8.76%
+iter 840: loss 1.0858, loss_a 1.0858, loss_b nan, time 1315.79ms, mfu 8.75%
+iter 850: loss 1.0423, loss_a 1.0423, loss_b nan, time 1313.01ms, mfu 8.75%
+iter 860: loss 1.0557, loss_a 1.0557, loss_b nan, time 1314.95ms, mfu 8.75%
+iter 870: loss 1.0268, loss_a 1.0268, loss_b nan, time 1315.08ms, mfu 8.75%
+iter 880: loss 1.0732, loss_a 1.0732, loss_b nan, time 1313.67ms, mfu 8.75%
+iter 890: loss 0.9618, loss_a 0.9618, loss_b nan, time 1314.64ms, mfu 8.75%
+iter 900: loss 1.0123, loss_a 1.0123, loss_b nan, time 1311.90ms, mfu 8.75%
+iter 910: loss 1.0488, loss_a 1.0488, loss_b nan, time 1315.13ms, mfu 8.75%
+iter 920: loss 1.0224, loss_a 1.0224, loss_b nan, time 1312.02ms, mfu 8.75%
+iter 930: loss 1.1099, loss_a 1.1099, loss_b nan, time 1312.70ms, mfu 8.75%
+iter 940: loss 1.0590, loss_a 1.0590, loss_b nan, time 1313.68ms, mfu 8.75%
+iter 950: loss 1.0440, loss_a 1.0440, loss_b nan, time 1312.46ms, mfu 8.76%
+Traceback (most recent call last):
+  File "/home/jupyter/nanoGPTSparse/train.py", line 356, in <module>
+    scaler.scale(loss).backward()
+  File "/opt/conda/lib/python3.10/site-packages/torch/_tensor.py", line 581, in backward
+    torch.autograd.backward(
+  File "/opt/conda/lib/python3.10/site-packages/torch/autograd/__init__.py", line 347, in backward
+    _engine_run_backward(
+  File "/opt/conda/lib/python3.10/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt

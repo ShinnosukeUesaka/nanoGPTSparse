@@ -1,0 +1,16 @@
+{"time":"2024-12-20T09:50:53.60282912Z","level":"INFO","msg":"using version","core version":"0.19.1"}
+{"time":"2024-12-20T09:50:53.602848232Z","level":"INFO","msg":"created symlink","path":"/home/jupyter/nanoGPTSparse/wandb/run-20241220_095053-yawd5two/logs/debug-core.log"}
+{"time":"2024-12-20T09:50:53.7049476Z","level":"INFO","msg":"created new stream","id":"yawd5two"}
+{"time":"2024-12-20T09:50:53.704992182Z","level":"INFO","msg":"stream: started","id":"yawd5two"}
+{"time":"2024-12-20T09:50:53.705027997Z","level":"INFO","msg":"handler: started","stream_id":"yawd5two"}
+{"time":"2024-12-20T09:50:53.705024046Z","level":"INFO","msg":"writer: Do: started","stream_id":"yawd5two"}
+{"time":"2024-12-20T09:50:53.705064532Z","level":"INFO","msg":"sender: started","stream_id":"yawd5two"}
+{"time":"2024-12-20T09:50:53.980657677Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2024-12-21T00:27:25.370857575Z","level":"INFO","msg":"stream: closing","id":"yawd5two"}
+{"time":"2024-12-21T00:27:25.37094554Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2024-12-21T00:27:25.371802318Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2024-12-21T00:27:25.676570668Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2024-12-21T00:27:25.850289545Z","level":"INFO","msg":"handler: closed","stream_id":"yawd5two"}
+{"time":"2024-12-21T00:27:25.850339222Z","level":"INFO","msg":"sender: closed","stream_id":"yawd5two"}
+{"time":"2024-12-21T00:27:25.850340543Z","level":"INFO","msg":"writer: Close: closed","stream_id":"yawd5two"}
+{"time":"2024-12-21T00:27:25.850453824Z","level":"INFO","msg":"stream: closed","id":"yawd5two"}
