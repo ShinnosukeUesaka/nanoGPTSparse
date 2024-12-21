@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import tqdm
 from torch.nn import functional as F
 
 import wandb
@@ -26,7 +27,7 @@ def main(config: EvaluateConfig):
     losses = torch.zeros(config.eval_iters)
     losses_a = torch.zeros(config.eval_iters)
     losses_b = torch.zeros(config.eval_iters)
-    for k in range(config.eval_iters):
+    for k in tqdm.tqdm(range(config.eval_iters)):
         X, Y, mask_a = get_batch(config.dataset_dir, config.model_config.block_size, config.batch_size, 'test', config.device, load_mask=True)
         input_mask = torch.ones_like(mask_a, dtype=torch.bool) if config.use_only_a else mask_a
         logits = model(idx=X, mask_a=input_mask, targets=Y)
