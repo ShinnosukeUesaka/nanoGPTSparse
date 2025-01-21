@@ -5,6 +5,7 @@ import os
 from dataclasses import asdict
 from functools import partial
 from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -17,9 +18,9 @@ from model import SparseGPT
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-def main(config: MasterConfig):
+def main(config: MasterConfig) -> None:
     wandb.init(project=config.wandb_project, name=config.wandb_run_name, mode='online' if config.wandb_log else 'disabled', config=asdict(config))
-    best_val_loss = 1e9
+    best_val_loss: float = 1e9
 
     model = SparseGPT(config.model_config)
     model.to(config.device)
@@ -55,7 +56,7 @@ def main(config: MasterConfig):
                 torch.save(model.state_dict(), os.path.join(config.checkpoint_dir, f"model_{i}.pt"))
 
 
-def lr_lambda(it, warmup_iters, lr_decay_iters, learning_rate, min_lr):
+def lr_lambda(it: int, warmup_iters: int, lr_decay_iters: int, learning_rate: float, min_lr: float) -> float:
     # 1) Linear warmup
     if it < warmup_iters:
         return (it + 1) / (warmup_iters + 1)
@@ -72,7 +73,7 @@ def lr_lambda(it, warmup_iters, lr_decay_iters, learning_rate, min_lr):
 
 
 
-def get_batch(data_dir, block_size, batch_size, split, device, load_mask=False):
+def get_batch(data_dir: str, block_size: int, batch_size: int, split: str, device: str, load_mask: bool = False) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
@@ -97,9 +98,9 @@ def get_batch(data_dir, block_size, batch_size, split, device, load_mask=False):
     if load_mask:
         return x, y, mask
     else:
-        return x, y
+        return x, y, None
 
-def loss_fn(logits, y, mask):
+def loss_fn(logits: torch.Tensor, y: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     vocab_size = logits.shape[-1]
     loss = F.cross_entropy(logits.view(-1, vocab_size), y.flatten(), ignore_index=-1, reduction='none')
     loss_a = loss[mask.flatten()].mean()
@@ -108,7 +109,7 @@ def loss_fn(logits, y, mask):
     return loss, loss_a, loss_b
 
 @torch.no_grad()
-def eval_fn(model: SparseGPT, eval_iters: int, config: MasterConfig):
+def eval_fn(model: SparseGPT, eval_iters: int, config: MasterConfig) -> Tuple[float, float, float]:
     model.eval()
     losses = torch.zeros(eval_iters)
     losses_a = torch.zeros(eval_iters)
@@ -122,7 +123,7 @@ def eval_fn(model: SparseGPT, eval_iters: int, config: MasterConfig):
         losses_a[k] = loss_a.item()
         losses_b[k] = loss_b.item()
     model.train()
-    return losses.mean(), losses_a.mean(), losses_b.mean()
+    return losses.mean().item(), losses_a.mean().item(), losses_b.mean().item()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
