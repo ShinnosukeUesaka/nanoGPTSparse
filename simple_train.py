@@ -11,7 +11,7 @@ import torch
 from torch.nn import functional as F
 
 import wandb
-from configs import MasterConfig, config_dict
+from configs import MasterConfig, train_config_dict
 from model import SparseGPT
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -128,5 +128,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_name", type=str, required=True)
     config_name = parser.parse_args().config_name
-    config_instance = config_dict[config_name]
+    config_instance = train_config_dict[config_name]
     main(config_instance)

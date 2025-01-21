@@ -1,0 +1,16 @@
+{"time":"2024-12-19T03:43:27.577234638Z","level":"INFO","msg":"using version","core version":"0.19.1"}
+{"time":"2024-12-19T03:43:27.57725388Z","level":"INFO","msg":"created symlink","path":"/home/jupyter/nanoGPTSparse/wandb/run-20241219_034327-fxmtces4/logs/debug-core.log"}
+{"time":"2024-12-19T03:43:27.679962429Z","level":"INFO","msg":"created new stream","id":"fxmtces4"}
+{"time":"2024-12-19T03:43:27.680000413Z","level":"INFO","msg":"stream: started","id":"fxmtces4"}
+{"time":"2024-12-19T03:43:27.680038938Z","level":"INFO","msg":"writer: Do: started","stream_id":"fxmtces4"}
+{"time":"2024-12-19T03:43:27.680059423Z","level":"INFO","msg":"handler: started","stream_id":"fxmtces4"}
+{"time":"2024-12-19T03:43:27.680059421Z","level":"INFO","msg":"sender: started","stream_id":"fxmtces4"}
+{"time":"2024-12-19T03:43:27.849257302Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2024-12-19T04:05:12.218924584Z","level":"INFO","msg":"stream: closing","id":"fxmtces4"}
+{"time":"2024-12-19T04:05:12.218944562Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2024-12-19T04:05:12.219654283Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2024-12-19T04:05:12.540432821Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2024-12-19T04:05:12.610422799Z","level":"INFO","msg":"handler: closed","stream_id":"fxmtces4"}
+{"time":"2024-12-19T04:05:12.610460225Z","level":"INFO","msg":"sender: closed","stream_id":"fxmtces4"}
+{"time":"2024-12-19T04:05:12.610454379Z","level":"INFO","msg":"writer: Close: closed","stream_id":"fxmtces4"}
+{"time":"2024-12-19T04:05:12.61055866Z","level":"INFO","msg":"stream: closed","id":"fxmtces4"}

@@ -1,0 +1,45 @@
+{
+  "os":  "Linux-5.10.0-33-cloud-amd64-x86_64-with-glibc2.31",
+  "python":  "CPython 3.10.15",
+  "startedAt":  "2024-12-19T03:43:27.573582Z",
+  "args":  [
+    "config/train_enwiki8_char_sparse.py"
+  ],
+  "program":  "/home/jupyter/nanoGPTSparse/train.py",
+  "codePath":  "train.py",
+  "git":  {
+    "remote":  "https://github.com/ShinnosukeUesaka/nanoGPTSparse.git",
+    "commit":  "ed73db809efdd49c52a2a85d6f6db7ddd5179384"
+  },
+  "email":  "shinnosuke.uesaka@gmail.com",
+  "root":  "/home/jupyter/nanoGPTSparse",
+  "host":  "instance-2",
+  "executable":  "/opt/conda/bin/python",
+  "codePathLocal":  "train.py",
+  "cpu_count":  2,
+  "cpu_count_logical":  4,
+  "gpu":  "NVIDIA L4",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "158271492096",
+      "used":  "44097413120"
+    }
+  },
+  "memory":  {
+    "total":  "16785821696"
+  },
+  "cpu":  {
+    "count":  2,
+    "countLogical":  4
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA L4",
+      "memoryTotal":  "24152899584",
+      "cudaCores":  7424,
+      "architecture":  "Ada"
+    }
+  ],
+  "cudaVersion":  "12.4"
+}
