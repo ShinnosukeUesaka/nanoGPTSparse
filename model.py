@@ -161,6 +161,28 @@ class SparseBlock(nn.Module):
 
 
 def interleave_tokens(tokens_a: torch.Tensor, tokens_b: torch.Tensor, mask_a: torch.Tensor) -> torch.Tensor:
+    """
+    Interleaves two sets of tokens based on a binary mask.
+
+    It creates an interleaved tensor where elements from `tokens_a` are placed wherever `mask_a` is True,
+    and elements from `tokens_b` are placed wherever `mask_a` is False.
+
+    Parameters:
+    ----------
+    tokens_a : torch.Tensor
+        A tensor of shape (B, T, C)
+
+    tokens_b : torch.Tensor
+        A tensor of shape (B, T, C)
+
+    mask_a : torch.Tensor
+        A binary mask of shape (B, T), where each element is either True or False.
+
+    Returns:
+    -------
+    torch.Tensor
+        A tensor of shape (B, T, C) with interleaved tokens from `tokens_a` and `tokens_b` according to `mask_a`.
+    """
     B, T = mask_a.size()
     C = tokens_a.size(-1)
     
